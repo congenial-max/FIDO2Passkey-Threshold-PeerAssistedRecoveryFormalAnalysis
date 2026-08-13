@@ -1,0 +1,50 @@
+==============================================================================
+summary of summaries:
+
+analyzed: 3_ECS_Threshold_2of3_v6.spthy
+
+  output:          DependencyGraph_4_v6.spthy
+  processing time: 2716.34s
+  
+  protocol_is_executable_strong (exists-trace): verified (13 steps)
+  secrecy_share (all-traces): verified (425 steps)
+  secrecy_main_key_collusion (all-traces): verified (5043 steps)
+  secrecy_fido_key_collusion (all-traces): verified (16937 steps)
+  collusion_premise_reachable (exists-trace): verified (23 steps)
+  collusion_bound_tight (exists-trace): verified (15 steps)
+  peers_alone_insufficient (all-traces): verified (54 steps)
+  peers_alone_premise_reachable (exists-trace): verified (6 steps)
+  no_reconstruction_without_server (all-traces): verified (93 steps)
+  recovery_session_binding (all-traces): verified (23 steps)
+  fido_blob_integrity (all-traces): verified (12491 steps)
+  isolation_own_peer_key_compromise (all-traces): verified (4376 steps)
+  isolation_guardian_user_key_compromise (all-traces): verified (53 steps)
+  distinct_helpers_enforced (all-traces): verified (5 steps)
+  recovery_survives_one_absent_peer (exists-trace): verified (25 steps)
+  consistency_fido_recovery (all-traces): verified (8 steps)
+  AUTO_typing (all-traces): verified (4 steps)
+
+==============================================================================
+	Command being timed: "systemd-run --user --scope -p MemoryMax=400G -p MemorySwapMax=0 tamarin-prover 3_ECS_Threshold_2of3_v6.spthy --prove --stop-on-trace=seqdfs --quit-on-warning -c=50 -s=50 --auto-sources --derivcheck-timeout=0 --output=DependencyGraph_4_v6.spthy"
+	User time (seconds): 6255.09
+	System time (seconds): 219.77
+	Percent of CPU this job got: 237%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 45:22.45
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 61976084
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 15842738
+	Voluntary context switches: 36699227
+	Involuntary context switches: 128996
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 21968
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

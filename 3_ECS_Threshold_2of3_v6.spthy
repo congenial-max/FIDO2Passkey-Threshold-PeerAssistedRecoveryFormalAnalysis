@@ -1,0 +1,459 @@
+theory ECS_FIDO2PasskeyRecovery_Threshold2of3
+begin
+
+
+builtins: asymmetric-encryption
+
+functions: srv/2, shr1/2, shr2/2, shr3/2, rec/3
+
+equations:
+  rec(srv(k, r), shr1(k, r), shr2(k, r)) = k,
+  rec(srv(k, r), shr1(k, r), shr3(k, r)) = k,
+  rec(srv(k, r), shr2(k, r), shr3(k, r)) = k
+
+
+heuristic: {reconstruction_secrecy}
+
+tactic: reconstruction_secrecy
+presort: C
+prio:
+    regex "State_A_" | regex "!Stored"
+prio:
+    regex "Sec_" | regex "_Rcv\("
+deprio:
+    regex "!KU\( srv\(" | regex "!KU\( shr"
+deprio:
+    regex "!KU\( rec\("
+
+
+tactic: tightness_witness
+presort: S
+prio:
+    regex "!KU\( rec\("
+prio:
+    regex "!KU\( srv\(" | regex "!KU\( shr"
+prio:
+    regex "State_A_" | regex "!Stored"
+
+// Exists-trace executability / reachability witnesses.
+tactic: executability
+presort: S
+prio:
+    regex "State_A_"
+prio:
+    regex "!Stored"
+
+// ==========================================
+// --- RESTRICTIONS & INFRASTRUCTURE ---
+// ==========================================
+
+restriction Equality:
+  "All x y #i. Eq(x,y) @i ==> x = y"
+
+restriction Inequality:
+  "All x #i. Neq(x,x) @i ==> F"
+
+restriction OneSetupPerUser:
+  "All A pkU1 pkP1 pkU2 pkP2 #i #j.
+    MainKeysGenerated(A, pkU1, pkP1) @ i & MainKeysGenerated(A, pkU2, pkP2) @ j
+    ==> #i = #j"
+
+restriction OneDealingPerUser:
+  "All A k1 k2 #i #j.
+    SharesDealt(A, k1) @ i & SharesDealt(A, k2) @ j ==> #i = #j"
+
+restriction OneNominationPerUser:
+  "All A B1 B2 B3 C1 C2 C3 #i #j.
+    Nominated_All(A, B1, B2, B3) @ i & Nominated_All(A, C1, C2, C3) @ j
+    ==> #i = #j"
+
+// --- Secure Channels (unchanged from the hardened model) ---
+rule C2S_Send:    [ C2S_Snd(A, B,  m) ] --> [ Sec_C2S(A, B,  m) ]
+rule C2S_Receive: [ Sec_C2S(A, B,  m) ] --> [ C2S_Rcv(A, B,  m) ]
+
+rule S2C_Send:    [ S2C_Snd(A, B,  m) ] --> [ Sec_S2C(A, B,  m) ]
+rule S2C_Receive: [ Sec_S2C(A, B,  m) ] --> [ S2C_Rcv(A, B,  m) ]
+
+rule P2P_Send:    [ P2P_Snd(A, B,  m) ] --> [ Sec_P2P(A, B,  m) ]
+rule P2P_Receive: [ Sec_P2P(A, B,  m) ] --> [ P2P_Rcv(A, B,  m) ]
+
+// ==========================================
+// --- KEY GENERATION & REVEAL RULES ---
+// ==========================================
+
+rule Reveal_Ltk_User [color=#FFCCCC]:
+    [ !LtkUser($A, ltk) ] --[ LtkRevealUser($A) ]-> [ Out(ltk) ]
+
+rule Reveal_Ltk_Peer [color=#FFCCAA]:
+    [ !LtkPeer($A, ltk) ] --[ LtkRevealPeer($A) ]-> [ Out(ltk) ]
+
+rule Reveal_Peer_Storage [color=#FFDDCC]:
+    [ !StoredEncryptedSubkey($B, $A, cipher) ]
+    --[ PeerStorageRevealed($B, $A) ]->
+    [ Out(cipher) ]
+
+rule Reveal_Server_Storage [color=#FF6666]:
+    [ !StoredPackage($A, $B1, $B2, $B3, pkA, srv_share, c1, c2, c3) ]
+    --[ ServerStorageRevealed($A) ]->
+    [ Out(srv_share) ]
+
+rule Register_User:
+  [ Fr(~ltk_user), Fr(~ltk_peer) ]
+  --[ MainKeysGenerated($A, pk(~ltk_user), pk(~ltk_peer)), UserRegistered($A, 'Client') ]->
+  [
+    !RegisteredUser($A, 'Client'),
+    !LtkUser($A, ~ltk_user),
+    !PkUser($A, pk(~ltk_user)),
+    Out(pk(~ltk_user)),
+    !LtkPeer($A, ~ltk_peer),
+    !PkPeer($A, pk(~ltk_peer)),
+    Out(pk(~ltk_peer))
+  ]
+
+// ==========================================
+// --- INITIATOR (EMPLOYEE A): SETUP PHASE ---
+// ==========================================
+
+rule Initiator_Nominates_Peers:
+  [ !RegisteredUser($A, 'Client'),
+    !RegisteredUser($B1, 'Client'),
+    !RegisteredUser($B2, 'Client'),
+    !RegisteredUser($B3, 'Client') ]
+  --[ Initiated($A, $B1), Initiated($A, $B2), Initiated($A, $B3),
+      Nominated_All($A, $B1, $B2, $B3),
+      Neq($A, $B1), Neq($A, $B2), Neq($A, $B3),
+      Neq($B1, $B2), Neq($B1, $B3), Neq($B2, $B3) ]->
+  [ C2S_Snd($A, 'Server', <'1_init_peer', $B1, $B2, $B3>),
+    State_A_1($A, $B1, $B2, $B3) ]
+
+rule Initiator_Receives_Peer_Keys:
+  [ State_A_1($A, $B1, $B2, $B3),
+    S2C_Rcv('Server', $A, <'2_server_resp', $B1, pkPeerB1, $B2, pkPeerB2, $B3, pkPeerB3>) ]
+  --[ AReceivedPeerKeys($A, $B1, $B2, $B3) ]->
+  [ State_A_2($A, $B1, $B2, $B3, pkPeerB1, pkPeerB2, pkPeerB3) ]
+
+// Dealing is a CONSTRUCTOR-only rule (no reducible symbol in the premise):
+// it builds srv/shr/aenc terms in the conclusion, which is always sound.
+rule Initiator_Sends_Subkeys:
+  let
+    s1        = shr1(ltkUserA, ~r)
+    s2        = shr2(ltkUserA, ~r)
+    s3        = shr3(ltkUserA, ~r)
+    srv_share = srv(ltkUserA, ~r)
+    c1        = aenc(<'share', s1, $A>, pkPeerB1)
+    c2        = aenc(<'share', s2, $A>, pkPeerB2)
+    c3        = aenc(<'share', s3, $A>, pkPeerB3)
+    package   = <'3_store_pkg', pk(ltkUserA), srv_share, c1, $B1, c2, $B2, c3, $B3>
+  in
+  [ State_A_2($A, $B1, $B2, $B3, pkPeerB1, pkPeerB2, pkPeerB3),
+    !LtkUser($A, ltkUserA),
+    Fr(~r) ]
+  --[ SharesDealt($A, ltkUserA),
+      ASendsKeyPackage($A, $B1, $B2, $B3, package) ]->
+  [ C2S_Snd($A, 'Server', package),
+    State_A_3($A, $B1, $B2, $B3, ltkUserA) ]
+
+// FIDO blob is CONSTRUCTED here
+rule Initiator_Starts_Phase2:
+  [ State_A_3($A, $B1, $B2, $B3, ltkUserA), Fr(~fido_key), !PkUser($A, pkUserA) ]
+  --[ A_Generates_FIDO_Key($A, ~fido_key) ]->
+  [ C2S_Snd($A, 'Server', <'4_store_fido', aenc(<~fido_key, ltkUserA>, pkUserA)>),
+    State_A_4($A, $B1, $B2, $B3, ~fido_key) ]
+
+// ==========================================
+// --- INITIATOR (EMPLOYEE A): RECOVERY PHASE ---
+// ==========================================
+
+rule Initiate_Recovery:
+  [ State_A_4($A, $B1, $B2, $B3, fido_key), Fr(~nonce) ]
+  --[ A_Initiates_Recovery($A, ~nonce) ]->
+  [ C2S_Snd($A, 'Server', <'5_req_recovery', ~nonce>),
+    State_A_Recovery_1($A, $B1, $B2, $B3, ~nonce) ]
+
+// The server component and FIDO blob are received OPAQUE (plain variables): at
+// this point the initiator does NOT yet know ltkA, so they are carried untouched
+// and reconciled at reconstruction, where the recovery key is obtained via rec
+// from the OOB shares. No reducible symbol enters this premise, no open chain.
+rule Initiator_Receives_Recovery_Data:
+  [ State_A_Recovery_1($A, $B1, $B2, $B3, nonce),
+    In(<'Server', $A, <'recovery_fido', nonce, enc_fido>>),
+    In(<'Server', $A, <'recovery_package', nonce, srv_share>>) ]
+  --[ AReceivedRecoveryData($A, srv_share, enc_fido) ]->
+  [ State_A_Recovery_2($A, $B1, $B2, $B3, srv_share, enc_fido, nonce) ]
+
+rule Initiator_Selects_Helpers_12:
+  [ State_A_Recovery_2($A, $B1, $B2, $B3, srv_share, enc_fido, nonce) ]
+  --[ ARequestsHelp($A, $B1), ARequestsHelp($A, $B2),
+      HelpersSelected($A, $B1, $B2), Neq($B1,$B2) ]->
+  [ P2P_Snd($A, $B1, <'7_p2p_help', nonce>),
+    P2P_Snd($A, $B2, <'7_p2p_help', nonce>),
+    State_A_Recovery_3($A, $B1, $B2, srv_share, enc_fido, nonce) ]
+
+rule Initiator_Selects_Helpers_13:
+  [ State_A_Recovery_2($A, $B1, $B2, $B3, srv_share, enc_fido, nonce) ]
+  --[ ARequestsHelp($A, $B1), ARequestsHelp($A, $B3),
+      HelpersSelected($A, $B1, $B3), Neq($B1,$B3) ]->
+  [ P2P_Snd($A, $B1, <'7_p2p_help', nonce>),
+    P2P_Snd($A, $B3, <'7_p2p_help', nonce>),
+    State_A_Recovery_3($A, $B1, $B3, srv_share, enc_fido, nonce) ]
+
+rule Initiator_Selects_Helpers_23:
+  [ State_A_Recovery_2($A, $B1, $B2, $B3, srv_share, enc_fido, nonce) ]
+  --[ ARequestsHelp($A, $B2), ARequestsHelp($A, $B3),
+      HelpersSelected($A, $B2, $B3), Neq($B2,$B3) ]->
+  [ P2P_Snd($A, $B2, <'7_p2p_help', nonce>),
+    P2P_Snd($A, $B3, <'7_p2p_help', nonce>),
+    State_A_Recovery_3($A, $B2, $B3, srv_share, enc_fido, nonce) ]
+
+// The QR payload is a tagged tuple over the secure P2P channel. The share
+// term is bound by pair projection (decomposable), and the nonce is re-matched
+// from the state fact (anti-replay). No non-invertible wrapper, no open chain,
+// no derivation-check warning. The raw share term is carried forward opaque.
+rule Initiator_Receives_First_Share:
+  [ State_A_Recovery_3($A, $H1, $H2, srv_share, enc_fido, nonce),
+    P2P_Rcv($H1, $A, <'8_qr', share_x, nonce>) ]
+  --[ AReceivedQR($A, $H1, share_x) ]->
+  [ State_A_Recovery_4($A, $H2, share_x, srv_share, enc_fido, nonce) ]
+
+rule Initiator_Receives_Second_Share:
+  [ State_A_Recovery_4($A, $H2, share_x, srv_share, enc_fido, nonce),
+    P2P_Rcv($H2, $A, <'8_qr', share_y, nonce>) ]
+  --[ AReceivedQR($A, $H2, share_y),
+      A_Receives_Decrypted_Subkeys($A, $H2, share_x, share_y, nonce) ]->
+  [ State_A_Recovery_5($A, share_x, share_y, srv_share, enc_fido, nonce) ]
+
+rule Initiator_Reconstructs:
+  [ State_A_Recovery_5($A, share_x, share_y, srv_share, enc_fido, nonce),
+    !PkUser($A, pkUserA) ]
+  --[ Eq(pk(rec(srv_share, share_x, share_y)), pkUserA),
+      A_Reconstructs_Key($A, rec(srv_share, share_x, share_y)) ]->
+  [ State_A_Recovered($A, enc_fido, rec(srv_share, share_x, share_y)) ]
+
+// FIDO recovery. ltkA is KNOWN (the reconstructed key carried in
+// State_A_Recovered), so matching the blob as aenc(<fido,ltkA>,pk(ltkA)) is the
+// legal "receiver holds the key and checks the result" case: fido is adec-
+// derivable given ltkA. The structural coincidence of ltkA inside the blob and
+// the reconstructed ltkA IS the self-referential integrity check (Attack Vector
+// B), enforced by matching rather than an adec/Eq chain.
+rule Initiator_Recovers_FIDO_Key:
+  [ State_A_Recovered($A, aenc(<fido, ltkA>, pk(ltkA)), ltkA) ]
+  --[ A_Recovers_FIDO_Key($A, fido),
+      RecoveryComplete($A) ]->
+  []
+
+// ==========================================
+// --- SERVER RULES ---
+// ==========================================
+
+rule Server_Sends_Peer_Keys:
+  [ C2S_Rcv($A, 'Server', <'1_init_peer', $B1, $B2, $B3>),
+    !PkPeer($B1, pkPeerB1), !PkPeer($B2, pkPeerB2), !PkPeer($B3, pkPeerB3),
+    !RegisteredUser($A, 'Client') ]
+  --[ ServerResponds($A, $B1, $B2, $B3) ]->
+  [ S2C_Snd('Server', $A, <'2_server_resp', $B1, pkPeerB1, $B2, pkPeerB2, $B3, pkPeerB3>) ]
+
+// Server stores opaque terms; no reducible symbol in premise.
+rule Server_Receives_And_Forwards_Package:
+  [ C2S_Rcv($A, 'Server', <'3_store_pkg', pkA, srv_share, c1, $B1, c2, $B2, c3, $B3>) ]
+  --[ ServerStoresPackage($A, $B1, $B2, $B3, pkA, srv_share),
+      ServerForwardsSubkeys($A, $B1, $B2, $B3) ]->
+  [ !StoredPackage($A, $B1, $B2, $B3, pkA, srv_share, c1, c2, c3),
+    S2C_Snd('Server', $B1, <'subkey_package', $A, c1>),
+    S2C_Snd('Server', $B2, <'subkey_package', $A, c2>),
+    S2C_Snd('Server', $B3, <'subkey_package', $A, c3>) ]
+
+rule Server_Receives_FIDO_Key:
+  [ C2S_Rcv($A, 'Server', <'4_store_fido', encrypted_fido_key>) ]
+  --[ ServerStoresFIDOKey($A, encrypted_fido_key) ]->
+  [ !StoredFIDOKey($A, encrypted_fido_key) ]
+
+// Recovery-phase outputs go to the PUBLIC network (Out): this is the ECS
+// realization (a compromised/observed server leaks its component and the blob).
+rule Server_Sends_Recovery_Data:
+  [ C2S_Rcv($A, 'Server', <'5_req_recovery', nonce>),
+    !StoredFIDOKey($A, encrypted_fido_key),
+    !StoredPackage($A, $B1, $B2, $B3, pkA, srv_share, c1, c2, c3) ]
+  --[ ServerSendsRecoveryData($A, srv_share, encrypted_fido_key) ]->
+  [ Out(<'Server', $A, <'recovery_fido', nonce, encrypted_fido_key>>),
+    Out(<'Server', $A, <'recovery_package', nonce, srv_share>>),
+    Out(<'Server', $A, <'subkey_package', c1>>),
+    Out(<'Server', $A, <'subkey_package', c2>>),
+    Out(<'Server', $A, <'subkey_package', c3>>) ]
+
+// ==========================================
+// --- PEER RULES ---
+// ==========================================
+
+rule Peer_Receives_Encrypted_Subkey:
+  [ S2C_Rcv('Server', $B, <'subkey_package', $A, cipher>) ]
+  --[ B_Stores_Subkey($B, $A, cipher) ]->
+  [ !StoredEncryptedSubkey($B, $A, cipher) ]
+
+rule Peer_Decrypts_And_Sends_QR:
+  [ P2P_Rcv($A, $B, <'7_p2p_help', nonce>),
+    !StoredEncryptedSubkey($B, $A, aenc(<'share', shrX, $A>, pk(ltkPeerB))),
+    !LtkPeer($B, ltkPeerB) ]
+  --[ PeerHelpsRecovery($B, $A, shrX, nonce) ]->
+  [ P2P_Snd($B, $A, <'8_qr', shrX, nonce>) ]
+
+// ============================================================================
+// --- LEMMAS ---
+// ============================================================================
+
+// L1. EXECUTABILITY (sanity, reachability only).
+lemma protocol_is_executable_strong [heuristic={executability}]: exists-trace
+  "Ex A #i.
+    RecoveryComplete(A) @ i
+    & not (Ex User #k. LtkRevealUser(User) @ #k)
+    & not (Ex User #k. LtkRevealPeer(User) @ #k)"
+
+// L2. PER-SHARE SECRECY (auxiliary, reused).
+lemma secrecy_share [reuse]:
+  "All A B s nonce #i.
+    PeerHelpsRecovery(B, A, s, nonce) @ i
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & not(Ex #l. LtkRevealPeer(B) @ l)
+  ==>
+  not(Ex #z. K(s) @ z)"
+
+lemma secrecy_main_key_collusion [reuse, heuristic={reconstruction_secrecy}]:
+  "All A ltk #i.
+    A_Reconstructs_Key(A, ltk) @ i
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & (All B1 B2 B3 #n. Nominated_All(A, B1, B2, B3) @ n ==>
+        ( not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B2) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B3) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B2) @ r1 & LtkRevealPeer(B3) @ r2) ))
+  ==>
+  not(Ex #z. K(ltk) @ z)"
+
+// L4. HEADLINE -- FIDO-credential collusion resistance, same bound.
+lemma secrecy_fido_key_collusion [heuristic={reconstruction_secrecy}]:
+  "All A fido_key #i.
+    A_Recovers_FIDO_Key(A, fido_key) @ i
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & (All B1 B2 B3 #n. Nominated_All(A, B1, B2, B3) @ n ==>
+        ( not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B2) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B3) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B2) @ r1 & LtkRevealPeer(B3) @ r2) ))
+  ==>
+  not(Ex #z. K(fido_key) @ z)"
+
+// NON-VACUITY WITNESS for L3/L4 (exactly one nominee revealed).
+lemma collusion_premise_reachable [heuristic={executability}]: exists-trace
+  "Ex A ltk B1 B2 B3 #i #n #r1.
+    A_Reconstructs_Key(A, ltk) @ i
+    & Nominated_All(A, B1, B2, B3) @ n
+    & LtkRevealPeer(B1) @ r1
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & not(Ex #r. LtkRevealPeer(B2) @ r)
+    & not(Ex #r. LtkRevealPeer(B3) @ r)"
+
+lemma collusion_bound_tight [heuristic={tightness_witness}]: exists-trace
+  "Ex A ltk B1 B2 B3 nonce #d #n #q #r1 #r2 #z.
+    Nominated_All(A, B1, B2, B3) @ n
+    & SharesDealt(A, ltk) @ d
+    & A_Initiates_Recovery(A, nonce) @ q
+    & LtkRevealPeer(B1) @ r1
+    & LtkRevealPeer(B2) @ r2
+    & K(ltk) @ z
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & not(Ex #l. LtkRevealPeer(B3) @ l)"
+
+lemma peers_alone_insufficient [heuristic={reconstruction_secrecy}]:
+  "All A ltk #d.
+    SharesDealt(A, ltk) @ d
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & (All B1 B2 B3 #n. Nominated_All(A, B1, B2, B3) @ n ==>
+        ( not(Ex #r. LtkRevealPeer(B1) @ r)
+        & not(Ex #r. LtkRevealPeer(B2) @ r)
+        & not(Ex #r. LtkRevealPeer(B3) @ r) ))
+    & not(Ex s_share enc_fido #q. ServerSendsRecoveryData(A, s_share, enc_fido) @ q)
+  ==>
+  not(Ex #z. K(ltk) @ z)"
+
+lemma peers_alone_premise_reachable [heuristic={executability}]: exists-trace
+  "Ex A ltk B1 B2 B3 #d #n #s.
+    SharesDealt(A, ltk) @ d
+    & Nominated_All(A, B1, B2, B3) @ n
+    & ServerStorageRevealed(A) @ s
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & not(Ex #r. LtkRevealPeer(B1) @ r)
+    & not(Ex #r. LtkRevealPeer(B2) @ r)
+    & not(Ex #r. LtkRevealPeer(B3) @ r)
+    & not(Ex s_share enc_fido #q. ServerSendsRecoveryData(A, s_share, enc_fido) @ q)"
+
+
+lemma no_reconstruction_without_server:
+  "All A ltk #i.
+    A_Reconstructs_Key(A, ltk) @ i
+  ==>
+    (Ex sfido s #j. ServerSendsRecoveryData(A, s, sfido) @ j & j < i)"
+
+lemma recovery_session_binding:
+  "All A B s nonce #i.
+    PeerHelpsRecovery(B, A, s, nonce) @ i
+  ==>
+    (Ex #j. A_Initiates_Recovery(A, nonce) @ j & j < i)"
+
+lemma fido_blob_integrity:
+  "All A fido_rec #i.
+    A_Recovers_FIDO_Key(A, fido_rec) @ i
+    & not(Ex #k. LtkRevealUser(A) @ k)
+    & (All B1 B2 B3 #n. Nominated_All(A, B1, B2, B3) @ n ==>
+        ( not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B2) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B3) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B2) @ r1 & LtkRevealPeer(B3) @ r2) ))
+  ==>
+    (Ex #j. A_Generates_FIDO_Key(A, fido_rec) @ j & j < i)"
+
+// ROLE ISOLATION (own assist key), scoped to the actual helpers.
+lemma isolation_own_peer_key_compromise:
+  "All A fido_key H1 H2 #i #h.
+    A_Recovers_FIDO_Key(A, fido_key) @ i
+    & HelpersSelected(A, H1, H2) @ h
+    & (Ex #l. LtkRevealPeer(A) @ l)
+    & not(Ex #l. LtkRevealUser(A) @ l)
+    & not(Ex #l. LtkRevealPeer(H1) @ l)
+    & not(Ex #l. LtkRevealPeer(H2) @ l)
+  ==>
+  not(Ex #z. K(fido_key) @ z)"
+
+// ROLE ISOLATION (guardian user key).
+lemma isolation_guardian_user_key_compromise:
+  "All A B s nonce #i.
+    PeerHelpsRecovery(B, A, s, nonce) @ i
+    & (Ex #l. LtkRevealUser(B) @ l)
+    & not(Ex #l. LtkRevealPeer(B) @ l)
+    & not(Ex #l. LtkRevealUser(A) @ l)
+  ==>
+  not(Ex #z. K(s) @ z)"
+
+// DISTINCT HELPERS (sanity).
+lemma distinct_helpers_enforced:
+  "All A H1 H2 #h. HelpersSelected(A, H1, H2) @ h ==> not(H1 = H2)"
+
+lemma recovery_survives_one_absent_peer [heuristic={executability}]: exists-trace
+  "Ex A H1 H2 B_absent B1 B2 B3 #i #h #n #r.
+    RecoveryComplete(A) @ i
+    & HelpersSelected(A, H1, H2) @ h
+    & Nominated_All(A, B1, B2, B3) @ n
+    & LtkRevealPeer(B_absent) @ r
+    & (B_absent = B1 | B_absent = B2 | B_absent = B3)
+    & not(H1 = B_absent) & not(H2 = B_absent)
+    & not(Ex #l. LtkRevealUser(A) @ l)"
+
+lemma consistency_fido_recovery:
+  "All A f1 f2 #i #j.
+    A_Recovers_FIDO_Key(A, f1) @ i & A_Recovers_FIDO_Key(A, f2) @ j
+    & not(Ex #k. LtkRevealUser(A) @ k)
+    & (All B1 B2 B3 #n. Nominated_All(A, B1, B2, B3) @ n ==>
+        ( not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B2) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B3) @ r2)
+        & not(Ex #r1 #r2. LtkRevealPeer(B2) @ r1 & LtkRevealPeer(B3) @ r2) ))
+  ==>
+    f1 = f2"
+
+
+
+end
