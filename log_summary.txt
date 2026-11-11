@@ -48,23 +48,3 @@ analyzed: 3_ECS_Threshold_2of3_v6.spthy
 	Signals delivered: 0
 	Page size (bytes): 4096
 	Exit status: 0
-
-==============================================================================
-supplementary C3 run (see log_c3_supplement.txt):
-
-analyzed: 3_ECS_Threshold_2of3_v6.spthy
-
-  output:          DependencyGraph_c3_supplement.spthy
-  processing time: 27.74s
-
-  all_peers_without_server_insufficient (all-traces): verified (54 steps)
-  all_peers_premise_reachable (exists-trace): verified (8 steps)
-
-==============================================================================
-	Command being timed: "tamarin-prover 3_ECS_Threshold_2of3_v6.spthy --prove=all_peers_without_server_insufficient --prove=all_peers_premise_reachable --stop-on-trace=seqdfs --quit-on-warning --auto-sources --derivcheck-timeout=0 --output=DependencyGraph_c3_supplement.spthy"
-	User time (seconds): 73.35
-	System time (seconds): 7.07
-	Percent of CPU this job got: 288%
-	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:27.89
-	Maximum resident set size (kbytes): 1368524
-	Exit status: 0
