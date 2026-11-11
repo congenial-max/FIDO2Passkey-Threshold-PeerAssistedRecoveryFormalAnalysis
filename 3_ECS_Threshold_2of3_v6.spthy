@@ -383,6 +383,29 @@ lemma peers_alone_premise_reachable [heuristic={executability}]: exists-trace
     & not(Ex #r. LtkRevealPeer(B3) @ r)
     & not(Ex s_share enc_fido #q. ServerSendsRecoveryData(A, s_share, enc_fido) @ q)"
 
+lemma all_peers_without_server_insufficient
+      [heuristic={reconstruction_secrecy}]:
+  "All A ltk #d.
+     SharesDealt(A, ltk) @ d
+     & not(Ex #l. LtkRevealUser(A) @ l)
+     & not(Ex #s. ServerStorageRevealed(A) @ s)
+     & not(Ex s_share enc_fido #q.
+             ServerSendsRecoveryData(A, s_share, enc_fido) @ q)
+   ==>
+     not(Ex #z. K(ltk) @ z)"
+
+lemma all_peers_premise_reachable [heuristic={executability}]: exists-trace
+  "Ex A ltk B1 B2 B3 #d #n #r1 #r2 #r3.
+     SharesDealt(A, ltk) @ d
+     & Nominated_All(A, B1, B2, B3) @ n
+     & LtkRevealPeer(B1) @ r1 & LtkRevealPeer(B2) @ r2
+     & LtkRevealPeer(B3) @ r3
+     & not(Ex #l. LtkRevealUser(A) @ l)
+     & not(Ex #s. ServerStorageRevealed(A) @ s)
+     & not(Ex s_share enc_fido #q.
+             ServerSendsRecoveryData(A, s_share, enc_fido) @ q)"
+
+
 
 lemma no_reconstruction_without_server:
   "All A ltk #i.
